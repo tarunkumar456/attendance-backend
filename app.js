@@ -14,6 +14,9 @@ app.use(cookieparser());
 
 app.use(express.json());
 
+const locationRoute = require('./routes/locationRoute');
+
+app.use("/api/v1",locationRoute);
 
 const errorMiddleware = require('./middleware/error')
 
