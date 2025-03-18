@@ -1,65 +1,84 @@
-const catchasyncerror = require("../middleware/catchasyncerror");
+const catchAsyncError = require("../middleware/catchasyncerror");
 const userModels = require("../models/userModels");
-const ErrorHandler = require('../utils/errorhandler');
-const sendtoken = require('../utils/jwttoken');
-const jwt = require('jsonwebtoken');
+const ErrorHandler = require("../utils/errorhandler");
+const sendToken = require("../utils/jwttoken");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
-// Register User (Student or Teacher)
-exports.registerUser = catchasyncerror(async (req, resp) => {
-    const { name, email, password, role } = req.body;
+const {
+    generateRegistrationOptions,
+    verifyRegistrationResponse,
+    generateAuthenticationOptions,
+    verifyAuthenticationResponse,
+} = require("@simplewebauthn/server");
 
-    // Validate role
-    if (!["teacher", "student"].includes(role)) {
-        return resp.status(400).json({
-            success: false,
-            message: "Invalid role. Role must be either 'teacher' or 'student'."
-        });
-    }
+const CLIENT_URL = "http://localhost:3000";
+const RP_ID = "localhost";
 
-    const user = await userModels.create({ name, email, password, role });
-    sendtoken(user, 201, resp);
-});
-
-// Login User
-exports.loginUser = catchasyncerror(async (req, resp, next) => {
+// 📌 Traditional Registration (Email + Password)
+exports.registerUser = catchAsyncError(async (req, res, next) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-        return next(new ErrorHandler("Please enter Email & Password", 400));
+        return next(new ErrorHandler("Please enter all details", 400));
+    }
+
+    let user = await userModels.findOne({ email });
+
+    if (user) {
+        return next(new ErrorHandler("User already exists", 400));
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    user = await userModels.create({
+        email,
+        password: hashedPassword,
+    });
+
+    sendToken(user, 201, res);
+});
+
+// 📌 Traditional Login (Email + Password)
+exports.loginUser = catchAsyncError(async (req, res, next) => {
+    const { email, password } = req.body;
+    // console.log(email,password);
+
+    if (!email || !password) {
+        return next(new ErrorHandler("Please enter all details", 400));
     }
 
     const user = await userModels.findOne({ email }).select("+password");
+    // console.log(user)
 
     if (!user) {
-        return next(new ErrorHandler("Invalid Email or Password", 401));
+        return next(new ErrorHandler("Invalid email or password", 401));
     }
 
-    const isPasswordMatched = await user.comparepassword(password);
-
-    if (!isPasswordMatched) {
-        return next(new ErrorHandler("Invalid Email or Password", 401));
+    const isMatch = await bcrypt.compare(password, user.password);
+    
+    if (!isMatch) {
+        return next(new ErrorHandler("Invalid email or password", 401));
     }
 
-    sendtoken(user, 200, resp);
+    sendToken(user, 200, res);
 });
 
-// Logout User
-exports.logout = catchasyncerror((req, resp, next) => {
-    resp.cookie("token", null, {
+// 📌 Logout User
+exports.logout = catchAsyncError(async (req, res, next) => {
+    res.cookie("token", null, {
         expires: new Date(Date.now()),
         httpOnly: true,
-        secure: true,
-        sameSite: 'None'
     });
 
-    resp.status(200).json({
+    res.status(200).json({
         success: true,
-        message: "Logged Out"
+        message: "Logged out successfully",
     });
 });
 
-// Check if Authenticated
-exports.isAuth = catchasyncerror(async (req, resp, next) => {
+// 📌 Check if User is Logged In
+exports.isAuth = catchAsyncError(async (req, res, next) => {
     const { token } = req.cookies;
 
     if (!token) {
@@ -69,8 +88,220 @@ exports.isAuth = catchasyncerror(async (req, resp, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await userModels.findById(decoded.id);
 
-    resp.status(200).json({
+    res.status(200).json({
         success: true,
-        role: req.user.role
+        user: req.user,
     });
+});
+
+// 📌 WebAuthn - Initiate Registration
+exports.initRegister = catchAsyncError(async (req, res) => {
+    const { email } = req.query;
+
+    if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+    }
+
+    let user = await userModels.findOne({ email });
+
+    if (user) {
+        return res.status(400).json({ error: "User already exists" });
+    }
+
+    // ✅ Convert user ID to Uint8Array to comply with latest WebAuthn changes
+    const userIdBuffer = new TextEncoder().encode(email); // Convert email to Uint8Array
+
+    const options = await generateRegistrationOptions({
+        rpID: RP_ID,
+        rpName: "Your App Name",
+        userID: userIdBuffer, // ✅ Now using Uint8Array instead of string
+        userName: email,
+    });
+
+    res.cookie(
+        "regInfo",
+        JSON.stringify({
+            userId: Array.from(userIdBuffer), // ✅ Store as array since Uint8Array is not JSON serializable
+            email,
+            challenge: options.challenge,
+        }),
+        { httpOnly: true, maxAge: 60000, secure: true }
+    );
+
+    res.json(options);
+});
+
+
+// 📌 WebAuthn - Verify Registration
+exports.verifyRegister = catchAsyncError(async (req, res) => {
+    try {
+        // console.log("Received Cookies:", req.cookies);
+
+        // Validate the presence of registration info in cookies
+        if (!req.cookies.regInfo) {
+            return res.status(400).json({ error: "Registration info not found" });
+        }
+
+        let regInfo;
+        try {
+            regInfo = JSON.parse(req.cookies.regInfo);
+        } catch (err) {
+            return res.status(400).json({ error: "Invalid registration data in cookie" });
+        }
+
+        if (!regInfo || !regInfo.challenge || !regInfo.email) {
+            return res.status(400).json({ error: "Missing challenge or email in registration info" });
+        }
+
+        // console.log("Processing Registration for:", regInfo.email);
+
+        // Verify the WebAuthn response
+        const verification = await verifyRegistrationResponse({
+            response: req.body,
+            expectedChallenge: regInfo.challenge,
+            expectedOrigin: CLIENT_URL,
+            expectedRPID: RP_ID,
+        });
+
+        if (!verification.verified) {
+            return res.status(400).json({ verified: false, error: "Verification failed" });
+        }
+
+        // Extract relevant fields from the response
+        const { id, publicKey, counter, transports } = verification.registrationInfo.credential;
+        const { credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+        // const transports = req.body.transports || []; // Use provided transports or default to empty array
+        // console.log(verification.registrationInfo);
+        // Store user in the database
+        const { email, password, role,name } = req.query;
+        
+
+        const user = await userModels.create({
+            name,
+            password,
+            email: regInfo.email,
+            role,
+            passKey: {
+                id,  // Credential ID
+                publicKey,  // Public Key
+                counter,  // Counter for preventing replay attacks
+                deviceType: credentialDeviceType,  // Device type
+                backedUp: credentialBackedUp,  // Whether it's backed up
+                transport: transports,  // Transport methods
+            },
+        });
+
+        // console.log("User registered successfully:", user);
+
+        // Clear the registration cookie
+        res.clearCookie("regInfo");
+
+        // Send authentication token
+        sendToken(user, 201, res);
+    } catch (error) {
+        // console.error("WebAuthn Verification Error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+
+// 📌 WebAuthn - Initiate Authentication
+exports.initAuth = catchAsyncError(async (req, res) => {
+    const { email } = req.query;
+
+    if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+    }
+
+    const user = await userModels.findOne({ email });
+
+    if (!user || !user.passKey) {
+        return res.status(400).json({ error: "No user found" });
+    }
+
+    const options = await generateAuthenticationOptions({
+        rpID: RP_ID,
+        allowCredentials: [
+            {
+                id: user.passKey.id,
+                type: "public-key",
+                transports: user.passKey.transport,
+            },
+        ],
+    });
+
+    res.cookie(
+        "authInfo",
+        JSON.stringify({
+            userId: user._id,
+            challenge: options.challenge,
+        }),
+        { httpOnly: true, maxAge: 60000, secure: true }
+    );
+
+    res.json(options);
+});
+
+// 📌 WebAuthn - Verify Authentication
+exports.verifyAuth = catchAsyncError(async (req, res) => {
+    try {
+        if (!req.cookies.authInfo) {
+            return res.status(400).json({ error: "Authentication info not found in cookies." });
+        }
+
+        const authInfo = JSON.parse(req.cookies.authInfo);
+        // console.log("🔹 AuthInfo:", authInfo);
+        // console.log("🔹 Request Body:", JSON.stringify(req.body, null, 2));
+
+        const user = await userModels.findById(authInfo.userId);
+        if (!user || !user.passKey) {
+            return res.status(400).json({ error: "Invalid user or missing passKey." });
+        }
+
+        if (!user.passKey.publicKey) {
+            return res.status(400).json({ error: "User's passKey is incomplete." });
+        }
+
+        // console.log("🔹 Expected Challenge:", authInfo.challenge);
+        // console.log("🔹 Type of Challenge:", typeof authInfo.challenge);
+
+        // Convert the credential ID and public key to Buffer
+        const credentialId = Buffer.from(user.passKey.id, "base64");
+
+        let publicKey;
+        if (typeof user.passKey.publicKey === "string" && user.passKey.publicKey.includes(",")) {
+            // Convert comma-separated numbers to Buffer
+            publicKey = Buffer.from(user.passKey.publicKey.split(",").map(Number));
+        } else {
+            // Assume it's Base64-encoded
+            publicKey = Buffer.from(user.passKey.publicKey, "base64");
+        }
+
+        // Perform WebAuthn authentication verification
+        const verification = await verifyAuthenticationResponse({
+            response: req.body,
+            expectedChallenge: String(authInfo.challenge || ""), // Ensure challenge is a string
+            expectedOrigin: CLIENT_URL,
+            expectedRPID: RP_ID,
+            credential: {
+                id: credentialId,
+                publicKey: publicKey,
+                counter: user.passKey.counter || 0,
+                transports: user.passKey.transport || [],
+            },
+        });
+
+        if (!verification.verified) {
+            return res.status(400).json({ verified: false, error: "Authentication verification failed." });
+        }
+
+        user.passKey.counter = verification.authenticationInfo.newCounter;
+        await user.save();
+
+        res.clearCookie("authInfo");
+        sendToken(user, 200, res);
+    } catch (error) {
+        console.error("❌ Error in verifyAuth:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 });

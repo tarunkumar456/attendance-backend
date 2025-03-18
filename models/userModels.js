@@ -1,57 +1,55 @@
 const mongoose = require("mongoose");
-const validator = require('validator');
-const jwt = require('jsonwebtoken');
-const dotenv = require('dotenv');
-dotenv.config({ path: "./config/config.env" });
-const bcrypt = require('bcryptjs');
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
-const userSchema = mongoose.Schema({
+const userSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: [true, "Please enter name"]
+        required: true,
     },
     email: {
         type: String,
-        required: [true, "Please enter email"],
+        required: true,
         unique: true,
-        validate: [validator.isEmail, "Please enter a valid email"]
     },
     password: {
         type: String,
-        required: [true, "Please enter password"],
-        maxLength: [30, "Max length of password can be 30"],
-        minLength: [8, "Min length of password can be 8"],
-        select: false
+        required: true,
     },
     role: {
         type: String,
-        enum: ["teacher", "student"],
-        required: [true, "Please select a role (Teacher or Student)"]
+        enum: ["student", "teacher"],
+        default: "student",
     },
-    joinedAt: {
-        type: Date,
-        default: Date.now()
-    }
+    passKey: {
+        id: String,
+        publicKey: String,
+        counter: Number,
+        deviceType: String,
+        backedUp: Boolean,
+        transport: [String],
+    },
 });
 
-// Hash password before saving to DB
+// ✅ Hash password before saving
 userSchema.pre("save", async function (next) {
-    if (!this.isModified("password")) {
-        next();
-    }
+    if (!this.isModified("password")) return next();
     this.password = await bcrypt.hash(this.password, 10);
+    next();
 });
 
-// Generate JWT token
+// ✅ Compare password method
+userSchema.methods.comparePassword = async function (enteredPassword) {
+    return await bcrypt.compare(enteredPassword, this.password);
+};
+
+// ✅ Generate JWT token
 userSchema.methods.getJWTtoken = function () {
-    return jwt.sign({ id: this._id, role: this.role }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRE
+    return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRE,
     });
 };
 
-// Compare passwords
-userSchema.methods.comparepassword = async function (enteredpassword) {
-    return await bcrypt.compare(enteredpassword, this.password);
-};
+const User = mongoose.model("User", userSchema);
 
-module.exports = mongoose.model("users", userSchema);
+module.exports = User;

@@ -1,9 +1,14 @@
 const express = require('express');
-const { getData, registerUser, loginUser, logout, addData, isAuth,data } = require('../controllers/userController');
+const { getData, registerUser, loginUser, logout, addData, isAuth,
+    data,
+    initRegister,
+    verifyRegister,
+    initAuth,
+    verifyAuth } = require('../controllers/userController');
 const isaunthenticated = require('../middleware/auth');
 
 const router = express.Router();
-router.get('/', function(req, res) {
+router.get('/', function (req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE'); // If needed
     res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type'); // If needed
@@ -19,5 +24,11 @@ router.route('/login').post(loginUser);
 // router.route('/getdata').get(isaunthenticated,getData);
 // router.route('/adddata').put(isaunthenticated,addData);
 router.route('/islogin').get(isAuth);
+
+
+router.get("/init-register", initRegister);
+router.post("/verify-register", verifyRegister);
+router.get("/init-auth", initAuth);
+router.post("/verify-auth", verifyAuth);
 
 module.exports = router;

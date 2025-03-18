@@ -1,30 +1,28 @@
-const express = require('express')
-const cookieparser = require('cookie-parser');
+const express = require('express');
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
-const app = express();
-app.use(
-    cors({
-      origin: '*', // Allows all origins
-      methods: 'GET,HEAD,PUT,PATCH,POST,DELETE', // Allows all HTTP methods
-      allowedHeaders: '*', // Allows all headers
-      credentials: true // If needed, but note that '*' and credentials: true can't be used together
-    })
-  );
-app.use(cookieparser());
 
+const app = express();
+
+app.use(
+  cors({
+    origin: "http://localhost:3000", // ✅ Set the frontend origin explicitly
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true, // ✅ Allow credentials (cookies, headers)
+  })
+);
+
+app.use(cookieParser());
 app.use(express.json());
 
 const locationRoute = require('./routes/locationRoute');
+app.use("/api/v1", locationRoute);
 
-app.use("/api/v1",locationRoute);
+const notes = require('./routes/userRoute');
+app.use("/api/v1", notes);
 
-const errorMiddleware = require('./middleware/error')
-
-//route import
-const notes= require('./routes/userRoute');
-app.use("/api/v1",notes);
-
-
-//middleware for error
+const errorMiddleware = require('./middleware/error');
 app.use(errorMiddleware);
+
 module.exports = app;
