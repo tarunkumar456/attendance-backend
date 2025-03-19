@@ -6,6 +6,7 @@ const { getData, registerUser, loginUser, logout, addData, isAuth,
     initAuth,
     verifyAuth } = require('../controllers/userController');
 const isaunthenticated = require('../middleware/auth');
+const { generateCode, getCodeDetails } = require('../controllers/codeController');
 
 const router = express.Router();
 router.get('/', function (req, res) {
@@ -30,5 +31,6 @@ router.get("/init-register", initRegister);
 router.post("/verify-register", verifyRegister);
 router.get("/init-auth", initAuth);
 router.post("/verify-auth", verifyAuth);
+
 
 module.exports = router;

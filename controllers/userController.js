@@ -114,8 +114,15 @@ exports.initRegister = catchAsyncError(async (req, res) => {
     const options = await generateRegistrationOptions({
         rpID: RP_ID,
         rpName: "Your App Name",
-        userID: userIdBuffer, // ✅ Now using Uint8Array instead of string
+        userID: userIdBuffer,
         userName: email,
+        authenticatorSelection: {
+            authenticatorAttachment: "platform", // Force local device authenticator
+            requireResidentKey: true, // Device-bound key
+            userVerification: "required", // Enforce PIN/biometric
+            residentKey: "required"
+        },
+        excludeCredentials: [] 
     });
 
     res.cookie(
@@ -162,6 +169,7 @@ exports.verifyRegister = catchAsyncError(async (req, res) => {
             expectedOrigin: CLIENT_URL,
             expectedRPID: RP_ID,
         });
+
 
         if (!verification.verified) {
             return res.status(400).json({ verified: false, error: "Verification failed" });
@@ -221,11 +229,12 @@ exports.initAuth = catchAsyncError(async (req, res) => {
 
     const options = await generateAuthenticationOptions({
         rpID: RP_ID,
+        userVerification: "required", // Force PIN/biometric check
         allowCredentials: [
             {
                 id: user.passKey.id,
                 type: "public-key",
-                transports: user.passKey.transport,
+                transports: ["internal"] // Force internal authenticator
             },
         ],
     });
@@ -245,6 +254,7 @@ exports.initAuth = catchAsyncError(async (req, res) => {
 // 📌 WebAuthn - Verify Authentication
 exports.verifyAuth = catchAsyncError(async (req, res) => {
     try {
+        // Get client IP (ensure Express trust proxy is configured correctly)
         if (!req.cookies.authInfo) {
             return res.status(400).json({ error: "Authentication info not found in cookies." });
         }
@@ -290,16 +300,23 @@ exports.verifyAuth = catchAsyncError(async (req, res) => {
                 transports: user.passKey.transport || [],
             },
         });
+        // console.log(verification)
 
         if (!verification.verified) {
             return res.status(400).json({ verified: false, error: "Authentication verification failed." });
         }
 
+        // After successful verification
         user.passKey.counter = verification.authenticationInfo.newCounter;
         await user.save();
 
         res.clearCookie("authInfo");
-        sendToken(user, 200, res);
+        
+        // Include location in response (optional)
+        res.status(200).json({
+            success: true
+        });
+
     } catch (error) {
         console.error("❌ Error in verifyAuth:", error);
         res.status(500).json({ error: "Internal Server Error" });

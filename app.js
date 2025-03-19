@@ -18,9 +18,13 @@ app.use(express.json());
 
 const locationRoute = require('./routes/locationRoute');
 app.use("/api/v1", locationRoute);
+app.set('trust proxy', true); // Add this in your main Express config
 
 const notes = require('./routes/userRoute');
 app.use("/api/v1", notes);
+
+const codeRoute = require('./routes/codeRoute');
+app.use("/api/v1", codeRoute);
 
 const errorMiddleware = require('./middleware/error');
 app.use(errorMiddleware);
