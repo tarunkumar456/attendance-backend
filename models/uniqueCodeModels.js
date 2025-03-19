@@ -22,11 +22,6 @@ const uniqueCodeSchema = new mongoose.Schema({
   room: {
     type: String,
     required: true
-  },
-  expiresAt: {
-    type: Date,
-    required: true,
-    index: { expires: 0 } // Auto-delete after expiration
   }
 });
 

@@ -1,5 +1,5 @@
 const  catchasyncerror  = require("../middleware/catchasyncerror");
-const ErrorHandler = require("../middleware/error");
+const ErrorHandler = require("../utils/errorhandler");
 const { Location } = require("../models/locationModels");
 
 const addlocation = catchasyncerror(async (req, res, next) => {

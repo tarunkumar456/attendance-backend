@@ -6,7 +6,7 @@ const ErrorHandler = require("../utils/errorhandler");
 // Generate new attendance code
 exports.generateCode = catchAsyncError(async (req, res, next) => {
   const { batch, year, course, room } = req.body;
-  
+
   // Check for existing active code for this class
   const existingCode = await UniqueCode.findOne({
     batch,
@@ -35,8 +35,7 @@ exports.generateCode = catchAsyncError(async (req, res, next) => {
     batch,
     year,
     course,
-    room,
-    expiresAt
+    room
   });
 
   res.status(201).json({
@@ -47,7 +46,7 @@ exports.generateCode = catchAsyncError(async (req, res, next) => {
 
 // Delete code
 exports.deleteCode = catchAsyncError(async (req, res, next) => {
-  const {generatedCode}=req.body;
+  const { generatedCode } = req.body;
 
   // Verify database field name matches "code"
   const deletedCode = await UniqueCode.findOneAndDelete({ code: generatedCode }); // Explicit syntax
@@ -64,12 +63,13 @@ exports.deleteCode = catchAsyncError(async (req, res, next) => {
 
 // Get code details
 exports.getCodeDetails = catchAsyncError(async (req, res, next) => {
-  const { code } = req.params;
+  const { uniqueNumber } = req.body;
 
-  const codeData = await UniqueCode.findOne({ code });
-  
+
+  const codeData = await UniqueCode.findOne({ code: uniqueNumber });
+
   if (!codeData || codeData.expiresAt < new Date()) {
-    return next(new ErrorHandler("Invalid or expired code", 404));
+    return next(new ErrorHandler("Invalid or expired code", 400));
   }
 
   res.status(200).json({
