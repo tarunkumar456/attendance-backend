@@ -37,4 +37,20 @@ const loc = catchasyncerror(async (req, res, next) => {
   });
 });
 
-module.exports = { addlocation, loc }; // Use module.exports instead of export
+const getRoom = catchasyncerror(async (req, res, next) => {
+  const { roomNo } = req.body;
+  const room = await Location.findOne({
+    roomNo
+  });   
+  if(!room){
+    return next(
+      new ErrorHandler("Please provide correct code!", 400)
+    );
+  }else{
+    res.status(200).json({
+      success: true,
+      room,
+    });
+  }
+});
+module.exports = { addlocation, loc , getRoom }; // Use module.exports instead of export
